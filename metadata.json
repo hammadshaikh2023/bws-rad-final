@@ -1,0 +1,7 @@
+{
+  "name": "BWS Inventory Management",
+  "description": "A comprehensive inventory management system for small to medium-sized businesses, featuring real-time tracking, order management, reporting, and PWA capabilities for cross-platform support.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}

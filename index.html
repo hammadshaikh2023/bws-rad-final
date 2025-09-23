@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="./mainlogo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BWS Inventory Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Enable class-based dark mode in Tailwind
+      tailwind.config = {
+        darkMode: 'class',
+      }
+    </script>
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="stylesheet" href="./print.css" media="print">
+    <style>
+      /* Unified and consistent styling for all form elements */
+      input[type="text"],
+      input[type="email"],
+      input[type="password"],
+      input[type="number"],
+      input[type="tel"],
+      input[type="date"],
+      input[type="datetime-local"],
+      select,
+      textarea {
+        width: 100%;             /* Ensure full width by default */
+        padding-top: 0.75rem;    /* py-3 */
+        padding-bottom: 0.75rem; /* py-3 */
+        padding-left: 1rem;      /* px-4 */
+        padding-right: 1rem;     /* px-4 */
+        font-size: 1.05rem;      /* Larger text */
+        line-height: 1.5rem;
+        background-color: #f9fafb; /* Lighter background, e.g., gray-50 */
+        border-width: 1px;
+        border-color: #d1d5db;     /* gray-300 */
+        border-radius: 0.375rem; /* rounded-md */
+        transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+      }
+      
+      .dark input[type="text"],
+      .dark input[type="email"],
+      .dark input[type="password"],
+      .dark input[type="number"],
+      .dark input[type="tel"],
+      .dark input[type="date"],
+      .dark input[type="datetime-local"],
+      .dark select,
+      .dark textarea {
+        background-color: #374151; /* gray-700 */
+        border-color: #4b5563; /* gray-600 */
+        color: #e5e7eb; /* gray-200 */
+      }
+
+      input[type="text"]:focus,
+      input[type="email"]:focus,
+      input[type="password"]:focus,
+      input[type="number"]:focus,
+      input[type="tel"]:focus,
+      input[type="date"]:focus,
+      input[type="datetime-local"]:focus,
+      select:focus,
+      textarea:focus {
+        outline: none;
+        border-color: #4f46e5; /* indigo-600 */
+        box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2); /* Ring effect */
+      }
+      
+      /* Specific style for product search input in modals */
+      .product-search-input {
+        background-color: #f3f4f6; /* Tailwind gray-100 */
+        padding-right: 2.5rem; /* Make space for arrow icon */
+      }
+
+      .dark .product-search-input {
+        background-color: #374151; /* Tailwind gray-700 */
+      }
+
+      /* Specific override for inventory search to accommodate icon */
+      #inventory-search {
+        padding-left: 2.5rem;
+      }
+
+      /* Adjust select padding to account for custom arrow */
+      select {
+        padding-right: 2.5rem;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+        background-position: right 0.5rem center;
+        background-repeat: no-repeat;
+        background-size: 1.5em 1.5em;
+      }
+
+      .dark select {
+         background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%239ca3af' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+      }
+
+      /* Global Font Size Control */
+      /* Set the default font size. 'rem' units will be relative to this. */
+      html.font-base { font-size: 16px; } /* Default */
+      html.font-sm { font-size: 14px; }
+      html.font-lg { font-size: 18px; }
+      html.font-xl { font-size: 20px; }
+
+      /* Animation Keyframes */
+      @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+      }
+      @keyframes slideInUp {
+          from {
+              opacity: 0;
+              transform: translateY(15px);
+          }
+          to {
+              opacity: 1;
+              transform: translateY(0);
+          }
+      }
+      @keyframes zoomIn {
+          from {
+              opacity: 0;
+              transform: scale(0.95);
+          }
+          to {
+              opacity: 1;
+              transform: scale(1);
+          }
+      }
+
+      /* Animation Utility Classes */
+      .animate-fadeIn {
+          animation: fadeIn 0.4s ease-out forwards;
+      }
+      .animate-slideInUp {
+          animation: slideInUp 0.5s ease-out forwards;
+      }
+      .animate-zoomIn {
+          animation: zoomIn 0.3s ease-out forwards;
+      }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "recharts": "https://aistudiocdn.com/recharts@^3.2.0",
+    "react/": "https://aistudiocdn.com/react@^19.1.1/",
+    "react": "https://aistudiocdn.com/react@^19.1.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+    "jspdf": "https://aistudiocdn.com/jspdf@^3.0.2",
+    "vite": "https://aistudiocdn.com/vite@^7.1.5",
+    "jspdf-autotable": "https://aistudiocdn.com/jspdf-autotable@^5.0.2",
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.0.2",
+    "react-router-dom": "https://aistudiocdn.com/react-router-dom@^7.9.0",
+    "@testing-library/react": "https://aistudiocdn.com/@testing-library/react@^16.3.0",
+    "vitest": "https://aistudiocdn.com/vitest@^3.2.4",
+    "vitest/": "https://aistudiocdn.com/vitest@^3.2.4/",
+    "@testing-library/jest-dom": "https://aistudiocdn.com/@testing-library/jest-dom@^6.8.0"
+  }
+}
+</script>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js', { scope: './' }).then(registration => {
+            console.log('SW registered: ', registration);
+          }).catch(registrationError => {
+            console.log('SW registration failed: ', registrationError);
+          });
+        });
+      }
+    </script></body>
+</html>
