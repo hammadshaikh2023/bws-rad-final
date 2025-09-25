@@ -4,11 +4,13 @@ import { RawMaterial, Supplier } from '../types';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
 import { PlusIcon } from '../components/IconComponents';
+import { useAuth } from '../context/AuthContext';
 
 type Tab = 'mixDesign' | 'list';
 
 const MixDesignView: React.FC = () => {
     const { rawMaterials, updateRawMaterial } = useData();
+    const { currentUser } = useAuth();
     // Filter for materials that are part of the mix design (unit: Percent)
     const mixDesignMaterials = rawMaterials.filter(rm => rm.unitOfMeasure === 'Percent');
 
@@ -44,7 +46,7 @@ const MixDesignView: React.FC = () => {
         mix.forEach(material => {
             const originalMaterial = rawMaterials.find(rm => rm.id === material.id);
             if (originalMaterial && originalMaterial.stock !== material.stock) {
-                 updateRawMaterial(material);
+                 updateRawMaterial(material, currentUser?.name || 'System');
             }
         });
         setIsDirty(false);
@@ -85,6 +87,7 @@ const MixDesignView: React.FC = () => {
                          <div key={water.id} className="grid grid-cols-2 items-center gap-4">
                             <label htmlFor={`material-${water.id}`} className="text-sm font-medium text-gray-700 dark:text-gray-300">{water.name}</label>
                             <div className="relative">
+                                {/* FIX: Corrected a typo from `material.id` to `water.id` to reference the correct variable in the component's scope. */}
                                 <input id={`material-${water.id}`} type="number" step="0.01" value={water.stock} onChange={(e) => handlePercentageChange(water.id, e.target.value)} className="w-full text-right pr-8" />
                                  <span className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500">%</span>
                             </div>
@@ -110,6 +113,7 @@ const MixDesignView: React.FC = () => {
 
 const AddEditRawMaterialModal: React.FC<{ isOpen: boolean; onClose: () => void; material: RawMaterial | null; }> = ({ isOpen, onClose, material }) => {
     const { addRawMaterial, updateRawMaterial, suppliers } = useData();
+    const { currentUser } = useAuth();
     const [formData, setFormData] = useState<Partial<RawMaterial>>({});
 
     useEffect(() => {
@@ -132,17 +136,18 @@ const AddEditRawMaterialModal: React.FC<{ isOpen: boolean; onClose: () => void; 
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const userName = currentUser?.name || 'System';
         if (material) {
-            updateRawMaterial(formData as RawMaterial);
+            updateRawMaterial(formData as RawMaterial, userName);
         } else {
-            addRawMaterial(formData as Omit<RawMaterial, 'id'>);
+            addRawMaterial(formData as Omit<RawMaterial, 'id'>, userName);
         }
         onClose();
     };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={material ? 'Edit Raw Material' : 'Add New Raw Material'}>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                         <label className="block text-sm font-medium">Material Name</label>
@@ -181,6 +186,24 @@ const AddEditRawMaterialModal: React.FC<{ isOpen: boolean; onClose: () => void; 
                         <textarea name="description" value={formData.description || ''} onChange={handleChange} rows={3}></textarea>
                     </div>
                 </div>
+
+                {material?.history && material.history.length > 0 && (
+                    <div className="md:col-span-2 pt-4 mt-4 border-t dark:border-gray-700">
+                        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Change History</h4>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">
+                            Last updated on {new Date(material.history[0].timestamp).toLocaleString()} by {material.history[0].user}
+                        </div>
+                        <div className="mt-2 space-y-2 max-h-24 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-2 rounded-md border dark:border-gray-700">
+                            {material.history.map((entry, index) => (
+                                <div key={index} className="text-xs">
+                                    <p className="font-semibold text-gray-800 dark:text-gray-200 break-words">{entry.action}</p>
+                                    <p className="text-gray-500 dark:text-gray-400">{entry.user} - {new Date(entry.timestamp).toLocaleString()}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex justify-end pt-4 space-x-2 border-t dark:border-gray-700 mt-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{material ? 'Save Changes' : 'Add Material'}</button>

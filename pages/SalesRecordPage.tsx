@@ -1,21 +1,33 @@
 
 
-
-
-
-
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
 import { useData } from '../context/DataContext';
 import { useAuth } from '../context/AuthContext';
 import { SalesTicket } from '../types';
-import { PlusIcon, PrinterIcon, PdfIcon, ExcelIcon, EmailIcon } from '../components/IconComponents';
+import { PlusIcon, PrinterIcon, PdfIcon, ExcelIcon, EmailIcon, SearchIcon } from '../components/IconComponents';
 import { Link } from 'react-router-dom';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { BWS_LOGO_BASE64 } from '../assets/logoBase64';
+
+// Custom hook for debouncing a value.
+function useDebounce<T>(value: T, delay: number): T {
+    const [debouncedValue, setDebouncedValue] = useState<T>(value);
+
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setDebouncedValue(value);
+        }, delay);
+        return () => {
+            clearTimeout(handler);
+        };
+    }, [value, delay]);
+
+    return debouncedValue;
+}
+
 
 const CreateSalesTicketModal: React.FC<{
     isOpen: boolean;
@@ -23,6 +35,7 @@ const CreateSalesTicketModal: React.FC<{
     ticket: SalesTicket | null;
 }> = ({ isOpen, onClose, ticket }) => {
     const { addSalesTicket, updateSalesTicket, products, salesTickets } = useData();
+    const { currentUser } = useAuth();
     const isEditMode = !!ticket;
     
     const initialFormState: Partial<SalesTicket> = {
@@ -57,12 +70,12 @@ const CreateSalesTicketModal: React.FC<{
                 const tare = Number(ticket.tareWeight) || 0;
                 setNetWeight(gross > tare ? gross - tare : 0);
             } else {
-                setFormData(initialFormState);
+                setFormData({ ...initialFormState, operatorName: currentUser?.name || 'N/A' });
                 setNetWeight('N/A');
             }
             setTicketNoError(null);
         }
-    }, [isOpen, ticket, isEditMode]);
+    }, [isOpen, ticket, isEditMode, currentUser]);
 
     useEffect(() => {
         const gross = formData.grossWeight;
@@ -131,12 +144,15 @@ const CreateSalesTicketModal: React.FC<{
             netWeight,
             destination: formData.destination!,
             operatorName: formData.operatorName!,
+            history: ticket?.history || [],
         };
 
+        const userName = currentUser?.name || 'System';
+
         if (isEditMode) {
-            updateSalesTicket(ticketData);
+            updateSalesTicket(ticketData, userName);
         } else {
-            addSalesTicket(ticketData);
+            addSalesTicket(ticketData, userName);
         }
         onClose();
     };
@@ -254,9 +270,27 @@ const CreateSalesTicketModal: React.FC<{
                     {/* Operator Name */}
                     <div className="md:col-span-2">
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Operator Name</label>
-                        <input type="text" name="operatorName" value={formData.operatorName} onChange={handleChange} />
+                        <input type="text" name="operatorName" value={formData.operatorName} onChange={handleChange} readOnly={!!currentUser} className={currentUser ? "bg-gray-200 dark:bg-gray-600" : ""} />
                     </div>
                 </div>
+
+                {ticket?.history && ticket.history.length > 0 && (
+                    <div className="pt-4 mt-4 border-t dark:border-gray-700">
+                        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Change History</h4>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">
+                            Last updated on {new Date(ticket.history[0].timestamp).toLocaleString()} by {ticket.history[0].user}
+                        </div>
+                        <div className="mt-2 space-y-2 max-h-24 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-2 rounded-md border dark:border-gray-700">
+                            {ticket.history.map((entry, index) => (
+                                <div key={index} className="text-xs">
+                                    <p className="font-semibold text-gray-800 dark:text-gray-200 break-words">{entry.action}</p>
+                                    <p className="text-gray-500 dark:text-gray-400">{entry.user} - {new Date(entry.timestamp).toLocaleString()}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex justify-end pt-4 space-x-2 border-t dark:border-gray-700 mt-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{isEditMode ? 'Save Changes' : 'Save Record'}</button>
@@ -274,15 +308,12 @@ const ViewSalesTicketModal: React.FC<{
     if (!ticket) return null;
 
     const formatWeight = (weight: number | string) => {
-        if (typeof weight === 'number') {
-            return weight.toLocaleString();
-        }
+        if (typeof weight === 'number') return weight.toLocaleString();
         return weight;
     };
-
+    
     const handleExportPdf = () => {
         const doc = new jsPDF();
-        
         doc.addImage(BWS_LOGO_BASE64, 'PNG', 15, 10, 40, 12);
         doc.setFontSize(20);
         doc.text("Sales Ticket", 200, 20, { align: 'right' });
@@ -290,32 +321,29 @@ const ViewSalesTicketModal: React.FC<{
         doc.text(`Ticket No: ${ticket.id}`, 200, 28, { align: 'right' });
 
         const tableBody = [
+            ['Ticket No', ticket.id],
             ['Date', ticket.date],
             ['Customer', ticket.customerName],
             ['Truck No.', ticket.truckNo],
-            ['Material Code', ticket.materialCode],
-            ['LPO No.', ticket.lpoNo],
-            ['Transporter', ticket.transporter],
-            ['Driver Name', ticket.driverName],
             ['Material Destination', ticket.materialDestination],
-            ['Final Destination', ticket.destination],
+            ['Transporter', ticket.transporter],
+            ['Material Code', ticket.materialCode],
             ['Time In', ticket.timeIn],
             ['Time Out', ticket.timeOut],
-            ['Gross Weight (kg)', formatWeight(ticket.grossWeight)],
+            ['Temperature (°C)', ticket.temperature?.toString() || 'N/A'],
             ['Tare Weight (kg)', formatWeight(ticket.tareWeight)],
+            ['L.P.O No', ticket.lpoNo],
+            ['Gross Weight (kg)', formatWeight(ticket.grossWeight)],
+            ['Driver Name', ticket.driverName],
             // FIX: Use 'as const' to ensure TypeScript infers the literal type 'bold' for fontStyle, which matches the expected 'FontStyle' type.
             [{ content: 'Net Weight (kg)', styles: { fontStyle: 'bold' as const } }, { content: formatWeight(ticket.netWeight), styles: { fontStyle: 'bold' as const } }],
-            ['Operator', ticket.operatorName],
+            ['Destination', ticket.destination],
+            ['Operator Name', ticket.operatorName],
         ];
-
-        if (ticket.temperature) {
-             tableBody.splice(11, 0, ['Temperature (°C)', String(ticket.temperature)]);
-        }
 
         autoTable(doc, {
             startY: 40,
             theme: 'grid',
-            headStyles: { fillColor: [79, 70, 229] },
             body: tableBody,
         });
 
@@ -335,35 +363,18 @@ const ViewSalesTicketModal: React.FC<{
         link.click();
         document.body.removeChild(link);
     };
-
-    const handleEmail = () => {
+    
+     const handleEmail = () => {
         const subject = `Sales Ticket Details: ${ticket.id}`;
-        const body = `
-Sales Ticket: ${ticket.id}
-Date: ${ticket.date}
-Customer: ${ticket.customerName}
-Truck No: ${ticket.truckNo}
------------------------------------
-DETAILS
------------------------------------
-Material Destination: ${ticket.materialDestination}
-Final Destination: ${ticket.destination}
-Material Code: ${ticket.materialCode}
-Time In: ${ticket.timeIn}
-Time Out: ${ticket.timeOut}
-Gross Weight: ${formatWeight(ticket.grossWeight)} kg
-Tare Weight: ${formatWeight(ticket.tareWeight)} kg
-Net Weight: ${formatWeight(ticket.netWeight)} kg
-Driver: ${ticket.driverName || 'N/A'}
-Operator: ${ticket.operatorName}
-        `;
+        let body = '';
+        for (const [key, value] of Object.entries(ticket)) {
+            const formattedKey = key.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+            body += `${formattedKey}: ${value}\n`;
+        }
         const mailtoLink = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body.trim())}`;
         window.location.href = mailtoLink;
     };
 
-    const handlePrint = () => {
-        window.print();
-    };
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={`Sales Record Details: #${ticket.id}`}>
@@ -376,11 +387,11 @@ Operator: ${ticket.operatorName}
                     <div><strong className="block text-gray-500 dark:text-gray-400">Date</strong> {ticket.date}</div>
                     <div><strong className="block text-gray-500 dark:text-gray-400">Customer</strong> {ticket.customerName}</div>
                     <div><strong className="block text-gray-500 dark:text-gray-400">Truck No.</strong> {ticket.truckNo}</div>
-                    <div><strong className="block text-gray-500 dark:text-gray-400">Material Code</strong> {ticket.materialCode}</div>
                     <div><strong className="block text-gray-500 dark:text-gray-400">Time In</strong> {ticket.timeIn}</div>
                     <div><strong className="block text-gray-500 dark:text-gray-400">Time Out</strong> {ticket.timeOut}</div>
-                    <div className="md:col-span-3"><strong className="block text-gray-500 dark:text-gray-400">Material Destination</strong> {ticket.materialDestination}</div>
-                    <div className="md:col-span-3"><strong className="block text-gray-500 dark:text-gray-400">Final Destination</strong> {ticket.destination}</div>
+                    <div><strong className="block text-gray-500 dark:text-gray-400">Temp</strong> {ticket.temperature ? `${ticket.temperature}°C` : 'N/A'}</div>
+                    <div className="md:col-span-3"><strong className="block text-gray-500 dark:text-gray-400">Material</strong> {ticket.materialCode} - {ticket.materialDestination}</div>
+                    <div className="md:col-span-3"><strong className="block text-gray-500 dark:text-gray-400">Destination</strong> {ticket.destination}</div>
                 </div>
                 <div className="grid grid-cols-3 gap-4 text-center">
                     <div>
@@ -396,24 +407,16 @@ Operator: ${ticket.operatorName}
                         <p className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">{formatWeight(ticket.netWeight)} kg</p>
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 text-sm pt-4 border-t">
-                    <div><strong className="block text-gray-500 dark:text-gray-400">Driver</strong> {ticket.driverName || 'N/A'}</div>
-                    <div><strong className="block text-gray-500 dark:text-gray-400">Operator</strong> {ticket.operatorName}</div>
-                </div>
+                 <div className="text-sm pt-4 border-t">
+                    <p><strong className="text-gray-500 dark:text-gray-400">Driver:</strong> {ticket.driverName}</p>
+                    <p><strong className="text-gray-500 dark:text-gray-400">Operator:</strong> {ticket.operatorName}</p>
+                 </div>
             </div>
             <div className="flex justify-end pt-4 space-x-2 border-t mt-4 no-print">
-                <button onClick={handleEmail} className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm">
-                    <EmailIcon className="w-4 h-4 mr-2" /> Email
-                </button>
-                <button onClick={handleExportPdf} className="flex items-center px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 text-sm">
-                    <PdfIcon className="w-4 h-4 mr-2" /> Export PDF
-                </button>
-                <button onClick={handleExportCsv} className="flex items-center px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 text-sm">
-                    <ExcelIcon className="w-4 h-4 mr-2" /> Export Excel
-                </button>
-                <button onClick={handlePrint} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm">
-                    <PrinterIcon className="w-4 h-4 mr-2" /> Print
-                </button>
+                <button onClick={handleEmail} className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 text-sm"><EmailIcon className="w-4 h-4 mr-2" /> Email</button>
+                <button onClick={handleExportPdf} className="flex items-center px-4 py-2 bg-red-700 text-white rounded-lg hover:bg-red-800 text-sm"><PdfIcon className="w-4 h-4 mr-2" /> Export PDF</button>
+                <button onClick={handleExportCsv} className="flex items-center px-4 py-2 bg-green-700 text-white rounded-lg hover:bg-green-800 text-sm"><ExcelIcon className="w-4 h-4 mr-2" /> Export Excel</button>
+                <button onClick={() => window.print()} className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 text-sm"><PrinterIcon className="w-4 h-4 mr-2" /> Print</button>
             </div>
         </Modal>
     );
@@ -421,14 +424,46 @@ Operator: ${ticket.operatorName}
 
 const SalesRecordPage: React.FC = () => {
     const { salesTickets, deleteSalesTicket } = useData();
-    const [isCreateModalOpen, setCreateModalOpen] = useState(false);
+    const [isAddEditModalOpen, setAddEditModalOpen] = useState(false);
     const [isViewModalOpen, setViewModalOpen] = useState(false);
     const [selectedTicket, setSelectedTicket] = useState<SalesTicket | null>(null);
     const [isDeleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const debouncedSearchTerm = useDebounce(searchTerm, 300);
+
+    const filteredTickets = useMemo(() => {
+        return salesTickets.filter(ticket => {
+            // Date Filter
+            const ticketDate = new Date(ticket.date);
+            if (dateFrom && ticketDate < new Date(dateFrom)) {
+                return false;
+            }
+            // Add one day to dateTo to make the range inclusive
+            if (dateTo) {
+                const endDate = new Date(dateTo);
+                endDate.setDate(endDate.getDate() + 1);
+                if (ticketDate >= endDate) {
+                    return false;
+                }
+            }
+            // Search Term Filter
+            if (!debouncedSearchTerm) return true;
+            const term = debouncedSearchTerm.toLowerCase();
+            return (
+                ticket.id.toLowerCase().includes(term) ||
+                ticket.customerName.toLowerCase().includes(term) ||
+                ticket.materialCode.toLowerCase().includes(term) ||
+                ticket.truckNo.toLowerCase().includes(term) ||
+                ticket.lpoNo.toLowerCase().includes(term)
+            );
+        });
+    }, [salesTickets, debouncedSearchTerm, dateFrom, dateTo]);
 
     const handleAddNew = () => {
         setSelectedTicket(null);
-        setCreateModalOpen(true);
+        setAddEditModalOpen(true);
     };
 
     const handleViewTicket = (ticket: SalesTicket) => {
@@ -438,7 +473,7 @@ const SalesRecordPage: React.FC = () => {
     
     const handleEditTicket = (ticket: SalesTicket) => {
         setSelectedTicket(ticket);
-        setCreateModalOpen(true); // Re-use the create/edit modal
+        setAddEditModalOpen(true);
     };
 
     const handleDeleteTicket = (ticket: SalesTicket) => {
@@ -468,12 +503,11 @@ const SalesRecordPage: React.FC = () => {
         { header: 'Truck No.', accessor: 'truckNo', sortable: true },
         { header: 'Material Code', accessor: 'materialCode', sortable: true },
         { header: 'Net Weight (kg)', accessor: 'netWeight', sortable: true, render: (item: SalesTicket) => typeof item.netWeight === 'number' ? item.netWeight.toLocaleString() : item.netWeight },
-        { header: 'Destination', accessor: 'destination', sortable: true },
     ];
     
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                 <div>
                      <h2 className="text-3xl font-bold text-gray-800 dark:text-white">Sales Records</h2>
                      <nav className="text-sm font-medium text-gray-500" aria-label="Breadcrumb">
@@ -494,15 +528,49 @@ const SalesRecordPage: React.FC = () => {
                 </button>
             </div>
 
+            <div className="p-4 bg-white dark:bg-gray-800 rounded-xl shadow-lg grid grid-cols-1 md:grid-cols-3 gap-4 items-center no-print">
+                <div className="md:col-span-2">
+                    <div className="relative">
+                        <span className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <SearchIcon className="w-5 h-5 text-gray-400" />
+                        </span>
+                        <input
+                            id="sales-record-search"
+                            type="text"
+                            placeholder="Search by Ticket No, Customer, Truck No, etc..."
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            className="w-full"
+                        />
+                    </div>
+                </div>
+                <div className="flex items-center gap-2">
+                    <input 
+                        type="date"
+                        value={dateFrom}
+                        onChange={e => setDateFrom(e.target.value)}
+                        className="w-full"
+                        aria-label="Date from"
+                    />
+                    <span className="text-gray-500 dark:text-gray-400">-</span>
+                    <input 
+                        type="date"
+                        value={dateTo}
+                        onChange={e => setDateTo(e.target.value)}
+                        className="w-full"
+                        aria-label="Date to"
+                    />
+                </div>
+            </div>
+
             <DataTable 
                 columns={columns} 
-                data={salesTickets} 
-                onViewDetails={handleViewTicket}
+                data={filteredTickets} 
+                onViewDetails={handleViewTicket} 
                 renderActions={renderActions}
             />
-            <CreateSalesTicketModal isOpen={isCreateModalOpen} onClose={() => setCreateModalOpen(false)} ticket={selectedTicket} />
+            <CreateSalesTicketModal isOpen={isAddEditModalOpen} onClose={() => setAddEditModalOpen(false)} ticket={selectedTicket} />
             <ViewSalesTicketModal isOpen={isViewModalOpen} onClose={() => setViewModalOpen(false)} ticket={selectedTicket} />
-
             <Modal isOpen={isDeleteConfirmOpen} onClose={() => setDeleteConfirmOpen(false)} title="Confirm Deletion">
                 <div>
                     <p>Are you sure you want to delete sales record <strong>#{selectedTicket?.id}</strong>? This action cannot be undone.</p>

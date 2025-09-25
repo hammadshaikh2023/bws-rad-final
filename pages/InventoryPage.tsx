@@ -18,6 +18,7 @@ const AddSupplierModal: React.FC<{
     onSupplierAdded: (name: string) => void;
 }> = ({ isOpen, onClose, onSupplierAdded }) => {
     const { addSupplier } = useData();
+    const { currentUser } = useAuth();
     const [name, setName] = useState('');
     const [contactPerson, setContactPerson] = useState('');
     const [email, setEmail] = useState('');
@@ -30,7 +31,7 @@ const AddSupplierModal: React.FC<{
             return;
         }
         const newSupplierData = { name, contactPerson, email, phone };
-        const newSupplier = addSupplier(newSupplierData);
+        const newSupplier = addSupplier(newSupplierData, currentUser?.name || 'System');
         onSupplierAdded(newSupplier.name);
         onClose();
         // Reset form
@@ -79,7 +80,6 @@ export const AddEditProductModal: React.FC<{
     const { defaultCurrency } = useSettings();
     const { currentUser } = useAuth();
     const [formData, setFormData] = useState<Partial<Product>>({});
-    const [showHistory, setShowHistory] = useState(false);
     const [errors, setErrors] = useState<{ expires?: string; stock?: string }>({});
     const [isAddSupplierModalOpen, setAddSupplierModalOpen] = useState(false);
 
@@ -102,7 +102,6 @@ export const AddEditProductModal: React.FC<{
                 reorderLevel: undefined,
             });
         }
-        setShowHistory(false); // Reset history view on modal open/product change
         setErrors({});
     }, [product, isOpen, defaultCurrency]);
     
@@ -185,22 +184,9 @@ export const AddEditProductModal: React.FC<{
         const finalData = { ...formData, stock: stockNum };
 
         if (product) {
-            if (currentUser) {
-                 const currentStock = product.stock;
-                 const newStock = finalData.stock;
-
-                 if (currentStock !== newStock) {
-                    const newHistoryEntry: HistoryEntry = {
-                        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                        action: `Stock adjusted to ${newStock} (was ${currentStock}) via product edit.`,
-                        user: currentUser.name,
-                    };
-                    finalData.history = [newHistoryEntry, ...(product.history || [])];
-                 }
-            }
             updateProduct(finalData as Product, currentUser?.name);
         } else {
-            addProduct(finalData as Omit<Product, 'id'>);
+            addProduct(finalData as Omit<Product, 'id'>, currentUser?.name || 'System');
         }
         onClose();
     }
@@ -419,25 +405,19 @@ export const AddEditProductModal: React.FC<{
                 </div>
 
                 {product?.history && product.history.length > 0 && (
-                    <div className="md:col-span-2 pt-4 border-t dark:border-gray-700">
-                        <button
-                            type="button"
-                            onClick={() => setShowHistory(!showHistory)}
-                            className="text-sm font-medium text-indigo-600 dark:text-indigo-400 flex items-center"
-                        >
-                            {showHistory ? 'Hide' : 'Show'} Stock History
-                            {showHistory ? <ArrowUpIcon className="w-4 h-4 ml-1" /> : <ArrowDownIcon className="w-4 h-4 ml-1" />}
-                        </button>
-                        {showHistory && (
-                            <div className="mt-2 space-y-2 max-h-40 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-2 rounded-md border dark:border-gray-700">
-                                {product.history.map((entry, index) => (
-                                    <div key={index} className="text-xs p-1.5 rounded bg-white dark:bg-gray-800">
-                                        <p className="font-semibold text-gray-800 dark:text-gray-200">{entry.action}</p>
-                                        <p className="text-gray-500 dark:text-gray-400">{entry.user} - {new Date(entry.timestamp).toLocaleString()}</p>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                    <div className="md:col-span-2 pt-4 border-t dark:border-gray-700 mt-4">
+                        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Change History</h4>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">
+                            Last updated on {new Date(product.history[0].timestamp).toLocaleString()} by {product.history[0].user}
+                        </div>
+                        <div className="mt-2 space-y-2 max-h-32 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-3 rounded-md border dark:border-gray-700">
+                            {product.history.map((entry, index) => (
+                                <div key={index} className="text-xs p-1.5 rounded bg-white dark:bg-gray-800 shadow-sm">
+                                    <p className="font-semibold text-gray-800 dark:text-gray-200 break-words">{entry.action}</p>
+                                    <p className="text-gray-500 dark:text-gray-400">{entry.user} - {new Date(entry.timestamp).toLocaleString()}</p>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
 

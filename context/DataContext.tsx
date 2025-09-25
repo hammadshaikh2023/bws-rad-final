@@ -34,25 +34,25 @@ interface DataContextType {
     shippingLabels: ShippingLabel[];
     reminders: Reminder[];
     categories: string[];
-    addProduct: (product: Omit<Product, 'id'>) => void;
-    addRawMaterial: (material: Omit<RawMaterial, 'id'>) => void;
-    updateRawMaterial: (material: RawMaterial) => void;
+    addProduct: (product: Omit<Product, 'id'>, userName: string) => void;
+    addRawMaterial: (material: Omit<RawMaterial, 'id'>, userName: string) => void;
+    updateRawMaterial: (material: RawMaterial, userName: string) => void;
     updateProduct: (product: Product, updatedBy?: string) => void;
     deleteProducts: (productIds: string[]) => void;
     deleteRawMaterials: (materialIds: string[]) => void;
     updateProductStatus: (productIds: string[], status: Product['status']) => void;
     addSalesOrder: (order: Omit<SalesOrder, 'id' | 'total' | 'status' | 'history'>, userName: string) => void;
-    addSalesTicket: (ticket: SalesTicket) => void;
-    updateSalesTicket: (ticket: SalesTicket) => void;
+    addSalesTicket: (ticket: SalesTicket, userName: string) => void;
+    updateSalesTicket: (ticket: SalesTicket, userName: string) => void;
     deleteSalesTicket: (ticketId: string) => void;
-    addPurchaseTicket: (ticket: PurchaseTicket) => void;
-    updatePurchaseTicket: (ticket: PurchaseTicket) => void;
+    addPurchaseTicket: (ticket: PurchaseTicket, userName: string) => void;
+    updatePurchaseTicket: (ticket: PurchaseTicket, userName: string) => void;
     deletePurchaseTicket: (ticketId: string) => void;
     addPurchaseOrder: (order: Omit<PurchaseOrder, 'id' | 'total' | 'status' | 'history'>, userName: string) => void;
     addUser: (user: Omit<User, 'id'>) => void;
     updateUser: (user: User) => void;
-    addSupplier: (supplier: Omit<Supplier, 'id'>) => Supplier;
-    updateSupplier: (supplier: Supplier) => void;
+    addSupplier: (supplier: Omit<Supplier, 'id'>, userName: string) => Supplier;
+    updateSupplier: (supplier: Supplier, userName: string) => void;
     deleteSuppliers: (supplierIds: string[]) => void;
     addGatePass: (gatePass: Omit<GatePass, 'gatePassId' | 'issueDate' | 'status'>) => void;
     updateGatePassStatus: (gatePassId: string, clearedByUser: string) => void;
@@ -245,31 +245,64 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         performOrQueueUpdate({ type: 'UPDATE_PRODUCT_STOCK', payload: { productId, quantityChange, reason, userName } });
     };
 
-    const addProduct = (product: Omit<Product, 'id'>) => {
+    const addProduct = (product: Omit<Product, 'id'>, userName: string) => {
         const newProduct: Product = {
             ...product,
             id: `P-${String(Date.now()).slice(-4)}`, // Use timestamp for more unique ID in demo
             status: getProductStatus(product.stock || 0),
-            history: [],
+            history: [{
+                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                action: 'Product Created.',
+                user: userName,
+            }],
         };
         setProducts(prev => [newProduct, ...prev]);
         performOrQueueUpdate({ type: 'ADD_PRODUCT', payload: newProduct });
     };
 
-    const addRawMaterial = (material: Omit<RawMaterial, 'id'>) => {
+    const addRawMaterial = (material: Omit<RawMaterial, 'id'>, userName: string) => {
         const newMaterial: RawMaterial = {
             ...material,
             id: `RM-${String(Date.now()).slice(-4)}`,
+            history: [{
+                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                action: 'Raw Material Created.',
+                user: userName,
+            }],
         };
         const updatedMaterials = [newMaterial, ...rawMaterials];
         setRawMaterials(updatedMaterials);
         idb.saveData(RAW_MATERIALS_STORE_NAME, updatedMaterials);
     };
 
-    const updateRawMaterial = (updatedMaterial: RawMaterial) => {
-        const updatedMaterials = rawMaterials.map(m => m.id === updatedMaterial.id ? updatedMaterial : m);
-        setRawMaterials(updatedMaterials);
-        idb.saveData(RAW_MATERIALS_STORE_NAME, updatedMaterials);
+    const updateRawMaterial = (updatedMaterial: RawMaterial, userName: string) => {
+        setRawMaterials(prevMaterials => {
+            const originalMaterial = prevMaterials.find(m => m.id === updatedMaterial.id);
+            if (!originalMaterial) return prevMaterials;
+
+            const changes: string[] = [];
+            const fieldsToCompare: (keyof RawMaterial)[] = ['name', 'category', 'stock', 'unitOfMeasure', 'supplierId', 'description'];
+            fieldsToCompare.forEach(key => {
+                if (originalMaterial[key] !== updatedMaterial[key]) {
+                    changes.push(`updated ${key} to "${updatedMaterial[key] || 'empty'}"`);
+                }
+            });
+
+            let newHistory = originalMaterial.history || [];
+            if (changes.length > 0) {
+                const newHistoryEntry: HistoryEntry = {
+                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    action: `Material details changed: ${changes.join('; ')}.`,
+                    user: userName
+                };
+                newHistory = [newHistoryEntry, ...newHistory];
+            }
+            
+            const finalMaterial = { ...updatedMaterial, history: newHistory };
+            const updatedMaterials = prevMaterials.map(m => m.id === updatedMaterial.id ? finalMaterial : m);
+            idb.saveData(RAW_MATERIALS_STORE_NAME, updatedMaterials);
+            return updatedMaterials;
+        });
     };
     
     const deleteRawMaterials = (materialIds: string[]) => {
@@ -279,26 +312,38 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
     
     const updateProduct = (updatedProduct: Product, updatedBy: string = 'System') => {
-        const originalProduct = products.find(p => p.id === updatedProduct.id);
-        if (!originalProduct) return;
+        setProducts(prevProducts => {
+            const originalProduct = prevProducts.find(p => p.id === updatedProduct.id);
+            if (!originalProduct) return prevProducts;
 
-        let finalProduct = { ...updatedProduct };
+            const changes: string[] = [];
+            const fieldsToCompare: (keyof Product)[] = ['name', 'sku', 'category', 'stock', 'unitOfMeasure', 'price', 'unitCost', 'warehouse', 'supplier', 'batchNumber', 'qualityTestStatus', 'description', 'reorderLevel', 'location'];
+            fieldsToCompare.forEach(key => {
+                if (originalProduct[key] !== updatedProduct[key]) {
+                    changes.push(`updated ${key} from "${originalProduct[key] || 'empty'}" to "${updatedProduct[key] || 'empty'}"`);
+                }
+            });
 
-        // Check if stock was changed via the edit form
-        if (originalProduct.stock !== updatedProduct.stock) {
-            const stockChange = updatedProduct.stock - originalProduct.stock;
-             const newHistoryEntry: HistoryEntry = {
-                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                action: `Stock adjusted by ${stockChange > 0 ? '+' : ''}${stockChange} units via product edit.`,
-                user: updatedBy,
+            let newHistory = originalProduct.history || [];
+            if (changes.length > 0) {
+                const newHistoryEntry: HistoryEntry = {
+                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    action: `Product details changed: ${changes.join('; ')}.`,
+                    user: updatedBy
+                };
+                newHistory = [newHistoryEntry, ...newHistory];
+            }
+
+            const finalProduct = {
+                ...updatedProduct,
+                status: getProductStatus(updatedProduct.stock || 0),
+                history: newHistory,
             };
-            finalProduct.history = [newHistoryEntry, ...(updatedProduct.history || [])];
-        }
-
-        finalProduct.status = getProductStatus(finalProduct.stock || 0);
-        
-        setProducts(prevProducts => prevProducts.map(p => p.id === finalProduct.id ? finalProduct : p));
-        performOrQueueUpdate({ type: 'UPDATE_PRODUCT', payload: finalProduct });
+            
+            const newProducts = prevProducts.map(p => (p.id === updatedProduct.id ? finalProduct : p));
+            performOrQueueUpdate({ type: 'UPDATE_PRODUCT', payload: finalProduct });
+            return newProducts;
+        });
     }
 
     const deleteProducts = (productIds: string[]) => {
@@ -339,16 +384,47 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
     };
 
-    const addSalesTicket = (ticket: SalesTicket) => {
-        const updatedTickets = [ticket, ...salesTickets];
+    const addSalesTicket = (ticket: SalesTicket, userName: string) => {
+        const ticketWithHistory = {
+            ...ticket,
+            history: [{
+                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                action: 'Sales Ticket Created.',
+                user: userName,
+            }]
+        }
+        const updatedTickets = [ticketWithHistory, ...salesTickets];
         setSalesTickets(updatedTickets);
         idb.saveData(SALES_TICKETS_STORE_NAME, updatedTickets);
     };
 
-    const updateSalesTicket = (ticket: SalesTicket) => {
-        const updatedTickets = salesTickets.map(t => (t.id === ticket.id ? ticket : t));
-        setSalesTickets(updatedTickets);
-        idb.saveData(SALES_TICKETS_STORE_NAME, updatedTickets);
+    const updateSalesTicket = (ticket: SalesTicket, userName: string) => {
+        setSalesTickets(prevTickets => {
+            const originalTicket = prevTickets.find(t => t.id === ticket.id);
+            if (!originalTicket) return prevTickets;
+
+            const changes: string[] = [];
+            Object.keys(ticket).forEach(key => {
+                const typedKey = key as keyof SalesTicket;
+                if (typedKey !== 'history' && originalTicket[typedKey] !== ticket[typedKey]) {
+                    changes.push(`updated ${key} to "${ticket[typedKey]}"`);
+                }
+            });
+
+            let newHistory = originalTicket.history || [];
+            if (changes.length > 0) {
+                 newHistory = [{
+                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    action: `Ticket updated: ${changes.join('; ')}.`,
+                    user: userName,
+                }, ...newHistory];
+            }
+
+            const finalTicket = { ...ticket, history: newHistory };
+            const updatedTickets = prevTickets.map(t => (t.id === ticket.id ? finalTicket : t));
+            idb.saveData(SALES_TICKETS_STORE_NAME, updatedTickets);
+            return updatedTickets;
+        });
     };
 
     const deleteSalesTicket = (ticketId: string) => {
@@ -357,16 +433,47 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         idb.saveData(SALES_TICKETS_STORE_NAME, updatedTickets);
     };
 
-    const addPurchaseTicket = (ticket: PurchaseTicket) => {
-        const updatedTickets = [ticket, ...purchaseTickets];
+    const addPurchaseTicket = (ticket: PurchaseTicket, userName: string) => {
+        const ticketWithHistory = {
+            ...ticket,
+            history: [{
+                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                action: 'Purchase Ticket Created.',
+                user: userName,
+            }]
+        };
+        const updatedTickets = [ticketWithHistory, ...purchaseTickets];
         setPurchaseTickets(updatedTickets);
         idb.saveData(PURCHASE_TICKETS_STORE_NAME, updatedTickets);
     };
 
-    const updatePurchaseTicket = (ticket: PurchaseTicket) => {
-        const updatedTickets = purchaseTickets.map(t => (t.id === ticket.id ? ticket : t));
-        setPurchaseTickets(updatedTickets);
-        idb.saveData(PURCHASE_TICKETS_STORE_NAME, updatedTickets);
+    const updatePurchaseTicket = (ticket: PurchaseTicket, userName: string) => {
+         setPurchaseTickets(prevTickets => {
+            const originalTicket = prevTickets.find(t => t.id === ticket.id);
+            if (!originalTicket) return prevTickets;
+            
+            const changes: string[] = [];
+            Object.keys(ticket).forEach(key => {
+                const typedKey = key as keyof PurchaseTicket;
+                if (typedKey !== 'history' && originalTicket[typedKey] !== ticket[typedKey]) {
+                    changes.push(`updated ${key} to "${ticket[typedKey]}"`);
+                }
+            });
+
+            let newHistory = originalTicket.history || [];
+            if (changes.length > 0) {
+                 newHistory = [{
+                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    action: `Ticket updated: ${changes.join('; ')}.`,
+                    user: userName,
+                }, ...newHistory];
+            }
+            
+            const finalTicket = { ...ticket, history: newHistory };
+            const updatedTickets = prevTickets.map(t => (t.id === ticket.id ? finalTicket : t));
+            idb.saveData(PURCHASE_TICKETS_STORE_NAME, updatedTickets);
+            return updatedTickets;
+        });
     };
 
     const deletePurchaseTicket = (ticketId: string) => {
@@ -516,10 +623,15 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         performOrQueueUpdate({ type: 'UPDATE_USER', payload: updatedUser });
     };
 
-    const addSupplier = (supplierData: Omit<Supplier, 'id'>): Supplier => {
+    const addSupplier = (supplierData: Omit<Supplier, 'id'>, userName: string): Supplier => {
         const newSupplier: Supplier = {
             ...supplierData,
             id: `SUP-${String(Date.now()).slice(-4)}`,
+            history: [{
+                timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                action: 'Vendor Created.',
+                user: userName,
+            }]
         };
         const updatedSuppliers = [newSupplier, ...suppliers].sort((a,b) => a.name.localeCompare(b.name));
         setSuppliers(updatedSuppliers);
@@ -527,10 +639,35 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return newSupplier;
     };
 
-    const updateSupplier = (updatedSupplier: Supplier) => {
-        const newSuppliers = suppliers.map(s => s.id === updatedSupplier.id ? updatedSupplier : s);
-        setSuppliers(newSuppliers);
-        idb.saveData(SUPPLIERS_STORE_NAME, newSuppliers);
+    const updateSupplier = (updatedSupplier: Supplier, userName: string) => {
+        setSuppliers(prevSuppliers => {
+            const originalSupplier = prevSuppliers.find(s => s.id === updatedSupplier.id);
+            if (!originalSupplier) return prevSuppliers;
+
+            const changes: string[] = [];
+            const fieldsToCompare: (keyof Supplier)[] = ['name', 'contactPerson', 'phone', 'email', 'address'];
+            fieldsToCompare.forEach(key => {
+                if (originalSupplier[key] !== updatedSupplier[key]) {
+                    changes.push(`updated ${key} from "${originalSupplier[key] || 'empty'}" to "${updatedSupplier[key] || 'empty'}"`);
+                }
+            });
+
+            let newHistory = originalSupplier.history || [];
+            if (changes.length > 0) {
+                const newHistoryEntry: HistoryEntry = {
+                    timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    action: `Vendor details changed: ${changes.join('; ')}.`,
+                    user: userName
+                };
+                newHistory = [newHistoryEntry, ...newHistory];
+            }
+
+            const finalSupplier = { ...updatedSupplier, history: newHistory };
+            
+            const newSuppliers = prevSuppliers.map(s => (s.id === updatedSupplier.id ? finalSupplier : s));
+            idb.saveData(SUPPLIERS_STORE_NAME, newSuppliers);
+            return newSuppliers;
+        });
     };
 
     const deleteSuppliers = (supplierIds: string[]) => {

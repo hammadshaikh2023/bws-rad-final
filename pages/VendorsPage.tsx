@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import DataTable from '../components/DataTable';
 import Modal from '../components/Modal';
 import { useData } from '../context/DataContext';
+import { useAuth } from '../context/AuthContext';
 import { Supplier } from '../types';
 import { PlusIcon } from '../components/IconComponents';
 
@@ -11,6 +12,7 @@ const AddEditVendorModal: React.FC<{
     vendor: Supplier | null;
 }> = ({ isOpen, onClose, vendor }) => {
     const { addSupplier, updateSupplier } = useData();
+    const { currentUser } = useAuth();
     const [formData, setFormData] = useState<Partial<Supplier>>({});
 
     React.useEffect(() => {
@@ -19,9 +21,9 @@ const AddEditVendorModal: React.FC<{
         } else {
             setFormData({
                 name: '',
-                contactPerson: '',
-                email: '',
-                phone: '',
+                contactPerson: 'N/A',
+                email: 'N/A',
+                phone: 'N/A',
                 address: '',
             });
         }
@@ -39,10 +41,12 @@ const AddEditVendorModal: React.FC<{
             return;
         }
 
+        const userName = currentUser?.name || 'System';
+
         if (vendor) {
-            updateSupplier(formData as Supplier);
+            updateSupplier(formData as Supplier, userName);
         } else {
-            addSupplier(formData as Omit<Supplier, 'id'>);
+            addSupplier(formData as Omit<Supplier, 'id'>, userName);
         }
         onClose();
     };
@@ -72,6 +76,24 @@ const AddEditVendorModal: React.FC<{
                     <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Address</label>
                     <textarea name="address" value={formData.address || ''} onChange={handleChange} rows={3}></textarea>
                 </div>
+
+                {vendor?.history && vendor.history.length > 0 && (
+                    <div className="pt-4 mt-4 border-t dark:border-gray-700">
+                        <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-200 mb-2">Change History</h4>
+                        <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 italic">
+                            Last updated on {new Date(vendor.history[0].timestamp).toLocaleString()} by {vendor.history[0].user}
+                        </div>
+                        <div className="mt-2 space-y-2 max-h-24 overflow-y-auto bg-gray-50 dark:bg-gray-900/50 p-2 rounded-md border dark:border-gray-700">
+                            {vendor.history.map((entry, index) => (
+                                <div key={index} className="text-xs">
+                                    <p className="font-semibold text-gray-800 dark:text-gray-200 break-words">{entry.action}</p>
+                                    <p className="text-gray-500 dark:text-gray-400">{entry.user} - {new Date(entry.timestamp).toLocaleString()}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex justify-end pt-4 space-x-2 border-t dark:border-gray-700 mt-4">
                     <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">Cancel</button>
                     <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">{vendor ? "Save Changes" : "Add Vendor"}</button>
@@ -130,6 +152,26 @@ const VendorsPage: React.FC = () => {
         { header: 'Phone', accessor: 'phone' as keyof Supplier, sortable: true },
         { header: 'Address', accessor: 'address' as keyof Supplier, sortable: true },
     ];
+    
+    const renderActions = (vendor: Supplier) => (
+        <div className="space-x-4">
+            <button
+                onClick={() => handleEditVendor(vendor)}
+                className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 font-medium"
+            >
+                Edit
+            </button>
+            <button
+                onClick={() => {
+                    setSelectedVendorIds([vendor.id]);
+                    setDeleteConfirmOpen(true);
+                }}
+                className="text-red-600 hover:text-red-900 dark:text-red-400 font-medium"
+            >
+                Delete
+            </button>
+        </div>
+    );
 
     return (
         <div className="space-y-6">
@@ -144,7 +186,7 @@ const VendorsPage: React.FC = () => {
                 Manage your list of suppliers and vendors.
             </p>
             
-            {selectedVendorIds.length > 0 && (
+            {selectedVendorIds.length > 0 && !isDeleteConfirmOpen && (
                  <div className="p-3 bg-indigo-100 dark:bg-indigo-900/50 rounded-lg flex items-center justify-between no-print animate-fadeIn">
                     <span className="text-sm font-medium text-indigo-800 dark:text-indigo-200">{selectedVendorIds.length} vendor(s) selected</span>
                     <div className="space-x-2">
@@ -156,7 +198,7 @@ const VendorsPage: React.FC = () => {
             <DataTable 
                 columns={columns} 
                 data={suppliers}
-                onViewDetails={handleEditVendor}
+                renderActions={renderActions}
                 selection={{
                     selectedIds: selectedVendorIds,
                     onToggleAll: handleToggleAll,

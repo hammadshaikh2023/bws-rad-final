@@ -34,6 +34,7 @@ export interface RawMaterial {
   supplierId: string;
   dateAdded: string;
   description?: string;
+  history?: HistoryEntry[];
 }
 
 export interface OrderItem {
@@ -108,6 +109,7 @@ export interface Supplier {
   phone?: string;
   email?: string;
   address?: string;
+  history?: HistoryEntry[];
 }
 
 export interface AuditLog {
@@ -172,6 +174,7 @@ export interface SalesTicket {
   netWeight: number | string;
   destination: string;
   operatorName: string;
+  history?: HistoryEntry[];
 }
 
 export interface PurchaseTicket {
@@ -195,4 +198,5 @@ export interface PurchaseTicket {
   operatorName: string;
   status: 'Received' | 'Pending' | 'Cancelled';
   notes?: string;
+  history?: HistoryEntry[];
 }
